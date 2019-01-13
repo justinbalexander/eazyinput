@@ -17,3 +17,6 @@ tags
 
 /zig-cache/
 *.h
+*.o
+*.md
+*.txt
