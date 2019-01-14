@@ -16,14 +16,33 @@ const ESC   = []u8{27};    // Starts an escape sequence
 
 const VTError = error {
     UnexpectedResponse,
+    UnableToDetermineTerminalDimensions,
 };
 
 const max_usize_str_len = "18446744073709551615".len;
+const unsupported_term = [][]const u8{
+        "dumb",
+        "cons25",
+        "emacs",
+};
 
 pub const CursorPos = struct {
     row_pos: usize,
     col_pos: usize,
 };
+
+pub const TerminalDimensions = struct {
+    width: usize,
+    height: usize,
+};
+
+pub fn isUnsupportedTerm() bool {
+    const TERM = os.getEnvPosix("TERM") orelse return true;
+    for (unsupported_term) |comp| {
+        if (mem.compare(TERM, comp) == mem.Compare.Equal) return true;
+    }
+    return false;
+}
 
 pub fn eraseCursorToEndOfLine(fd: *os.File) !void {
     try fd.write(ESC++"[0K");
@@ -91,14 +110,31 @@ pub fn getCursorPos(in: *os.File, out: *os.File) !CursorPos {
     return try scanRowColumnPositionResponse(response);
 }
 
-pub fn getCursorColumnPos(in: *os.File, out: *os.File) !usize {
+pub fn getCursorColumn(in: *os.File, out: *os.File) !usize {
     const cursor_pos = try getCursorPos(in, out);
     return cursor_pos.col_pos;
 }
 
-pub fn getCursorRowPos(in: *os.File, out: *os.File) !usize {
+pub fn getCursorRow(in: *os.File, out: *os.File) !usize {
     const cursor_pos = try getCursorPos(in, out);
     return cursor_pos.row_pos;
+}
+
+pub fn getTerminalSize() TerminalDimensions {
+    return ttyWinSize(1) catch TerminalDimensions {
+                                                    .width = 80,
+                                                    .height = 24,
+                                                  };
+}
+
+fn ttyWinSize(fd: i32) !os.winsize {
+    var wsz: os.winsize = undefined;
+    if (syscall3(SYS_ioctl, @bitCast(usize, isize(fd)), TIOCGWINSZ, @ptrToInt(&wsz)) == 0 and
+        wsz.ws_col != 0) {
+        return wsz;
+    } else {
+        return VTError.UnableToDetermineTerminalDimensions;
+    }
 }
 
 fn scanRowColumnPositionResponse(response: []const u8) !CursorPos {
@@ -118,7 +154,32 @@ fn scanRowColumnPositionResponse(response: []const u8) !CursorPos {
 }
 
 test "scan row/column position response" {
+    // SUCCESS CASES
     const ret1 = scanRowColumnPositionResponse((ESC++"[20;30")[0..]) catch unreachable;
     assert(ret1.row_pos == 20 and ret1.col_pos == 30);
+
+    const ret2 = scanRowColumnPositionResponse((ESC++"[18446744073709551615;18446744073709551615")[0..]) catch unreachable;
+    assert(ret2.row_pos == 18446744073709551615 and ret2.col_pos == 18446744073709551615);
+
+    // FAILURE CASES
+    const catch_val = CursorPos { .row_pos = 127,
+                                  .col_pos = 255,
+                                };
+    // parseUnsigned failure, num too large
+    const err1 = scanRowColumnPositionResponse((ESC++"[18446744073709551615;18446744073709551616")[0..]) catch catch_val;
+    assert(err1.row_pos == catch_val.row_pos and err1.col_pos == catch_val.col_pos);
+    const err2 = scanRowColumnPositionResponse((ESC++"[18446744073709551616;18446744073709551615")[0..]) catch catch_val;
+    assert(err2.row_pos == catch_val.row_pos and err2.col_pos == catch_val.col_pos);
+
+    // malformed response
+    // missing semicolon
+    const err3 = scanRowColumnPositionResponse((ESC++"[20:30")[0..]) catch catch_val;
+    assert(err3.row_pos == catch_val.row_pos and err3.col_pos == catch_val.col_pos);
+    // missing [
+    const err4 = scanRowColumnPositionResponse((ESC++"{20;30")[0..]) catch catch_val;
+    assert(err4.row_pos == catch_val.row_pos and err4.col_pos == catch_val.col_pos);
+    // extra character at start
+    const err5 = scanRowColumnPositionResponse((BELL++ESC++"[20;30")[0..]) catch catch_val;
+    assert(err5.row_pos == catch_val.row_pos and err5.col_pos == catch_val.col_pos);
 }
 
