@@ -39,7 +39,7 @@ pub const TerminalDimensions = struct {
 pub fn isUnsupportedTerm() bool {
     const TERM = os.getEnvPosix("TERM") orelse return true;
     for (unsupported_term) |comp| {
-        if (mem.compare(TERM, comp) == mem.Compare.Equal) return true;
+        if (mem.compare(u8, TERM, comp) == mem.Compare.Equal) return true;
     }
     return false;
 }
