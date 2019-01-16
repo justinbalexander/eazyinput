@@ -92,7 +92,7 @@ pub fn tcgetattr(fd: i32, tio: *Termios) !void {
     const err = os.posix.getErrno(rc);
     return switch (err) {
         0 => {},
-        else => error.TCXONC_Failed,
+        else => error.TCGETS_Failed,
         };
 }
 
