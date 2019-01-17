@@ -1,9 +1,12 @@
 const std = @import("std");
 const os = std.os;
+const linux = os.linux;
+const io = std.io;
 const fmt = std.fmt;
 const mem = std.mem;
 const FixedBufferAllocator = std.heap.FixedBufferAllocator;
 const assert = std.debug.assert;
+const termios = @import("termios.zig");
 
 // From http://www.3waylabs.com/nw/WWW/products/wizcon/vt220.html
 const BELL  = []u8{7};     // Bell
@@ -13,6 +16,10 @@ const LF    = []u8{10};    // Moves the cursor down one row
 const CR    = []u8{13};    // Move the cursor to column one
 const CAN   = []u8{24};    // Cancels an escape sequence
 const ESC   = []u8{27};    // Starts an escape sequence
+
+const std_in = os.File {.handle = os.posix.STDIN_FILENO};
+const std_out = os.File {.handle = os.posix.STDOUT_FILENO};
+const std_err = os.File {.handle = os.posix.STDERR_FILENO};
 
 const VTError = error {
     UnexpectedResponse,
@@ -44,92 +51,142 @@ pub fn isUnsupportedTerm() bool {
     return false;
 }
 
-pub fn eraseCursorToEndOfLine(fd: *os.File) !void {
-    try fd.write(ESC++"[0K");
+pub fn eraseCursorToEndOfLine() !void {
+    try std_out.write(ESC++"[0K");
 }
 
-pub fn eraseStartOfLineToCursor(fd: *os.File) !void {
-    try fd.write(ESC++"[1K");
+pub fn eraseStartOfLineToCursor() !void {
+    try std_out.write(ESC++"[1K");
 }
 
-pub fn eraseEntireLine(fd: *os.File) !void {
-    try fd.write(ESC++"[2K");
+pub fn eraseEntireLine() !void {
+    try std_out.write(ESC++"[2K");
 }
 
-pub fn eraseCursorToEndOfDisplay(fd: *os.File) !void {
-    try fd.write(ESC++"[0J");
+pub fn eraseCursorToEndOfDisplay() !void {
+    try std_out.write(ESC++"[0J");
 }
 
-pub fn eraseStartOfDisplayToCursor(fd: *os.File) !void {
-    try fd.write(ESC++"[1J");
+pub fn eraseStartOfDisplayToCursor() !void {
+    try std_out.write(ESC++"[1J");
 }
 
-pub fn eraseEntireDisplay(fd: *os.File) !void {
-    try fd.write(ESC++"[2J");
+pub fn eraseEntireDisplay() !void {
+    try std_out.write(ESC++"[2J");
 }
 
-pub fn cursorHome(fd: *os.File) !void {
-    try fd.write(ESC++"[H");
+pub fn cursorHome() !void {
+    try std_out.write(ESC++"[H");
 }
 
-pub fn cursorForward(fd: *os.File, num_chars: usize) !void {
+pub fn clearScreen() !void {
+    try cursorHome();
+    try eraseEntireDisplay();
+}
+
+pub fn cursorForward(num_chars: usize) !void {
     var formatting_buf: [max_usize_str_len + 3]u8 = undefined;
     const esc_seq = try fmt.bufPrint(formatting_buf[0..], ESC++"[{}C", num_chars);
-    try fd.write(esc_seq);
+    try std_out.write(esc_seq);
 }
 
-pub fn cursorBackward(fd: *os.File, num_chars: usize) !void {
+pub fn cursorBackward(num_chars: usize) !void {
     var formatting_buf: [max_usize_str_len + 3]u8 = undefined;
     const esc_seq = try fmt.bufPrint(formatting_buf[0..], ESC++"[{}D", num_chars);
-    try fd.write(esc_seq);
+    try std_out.write(esc_seq);
 }
 
-pub fn cursorUp(fd: *os.File, num_chars: usize) !void {
+pub fn cursorUp(num_chars: usize) !void {
     var formatting_buf: [max_usize_str_len + 3]u8 = undefined;
     const esc_seq = try fmt.bufPrint(formatting_buf[0..], ESC++"[{}A", num_chars);
-    try fd.write(esc_seq);
+    try std_out.write(esc_seq);
 }
 
-pub fn cursorDown(fd: *os.File, num_chars: usize) !void {
+pub fn cursorDown(num_chars: usize) !void {
     var formatting_buf: [max_usize_str_len + 3]u8 = undefined;
     const esc_seq = try fmt.bufPrint(formatting_buf[0..], ESC++"[{}B", num_chars);
-    try fd.write(esc_seq);
+    try std_out.write(esc_seq);
 }
 
-pub fn getCursorPos(in: *os.File, out: *os.File) !CursorPos {
-    var buf: [(max_usize_str_len * 2) + 4]u8 = undefined;
-    const alloc = FixedBufferAllocator.init(buf);
+pub fn getCursorPos() !CursorPos {
+    var buf_arr: [(max_usize_str_len * 2) + 4]u8 = undefined;
+    var buf = buf_arr[0..];
 
-    //https://invisible-island.net/xterm/ctlseqs/ctlseqs.html
-    try out.write(ESC++"[6n");
+    //https://vt100.net/docs/vt100-ug/chapter3.html#DSR
+    try std_out.write(ESC++"[6n");
 
-    // response delimited by 'R'
-    const in_stream = in.InStream();
-    const response = in_stream.readUntilDelimiterAlloc(alloc, 'R', buf.len);
+    var esc_index: usize = 0;
+    var char_R_index: usize = 0;
+    for (buf) |c,i| {
+        if ((try std_out.read(buf[i..i+1])) == 1) {
+            switch (buf[i]) {
+                ESC[0] => {
+                    esc_index = i;
+                    },
+                'R' => {
+                    char_R_index = i;
+                    break;
+                    },
+                else => {},
+            }
+        } else {
+            break;
+        }
+    }
 
-    return try scanRowColumnPositionResponse(response);
+    if (char_R_index > 0) {
+        return try scanCursorPositionReport(buf[esc_index..char_R_index]);
+    } else {
+        return error.CursorPosResponseNotFound;
+    }
 }
 
-pub fn getCursorColumn(in: *os.File, out: *os.File) !usize {
-    const cursor_pos = try getCursorPos(in, out);
+pub fn getCursorColumn() !usize {
+    const cursor_pos = try getCursorPos();
     return cursor_pos.col_pos;
 }
 
-pub fn getCursorRow(in: *os.File, out: *os.File) !usize {
-    const cursor_pos = try getCursorPos(in, out);
+pub fn getCursorRow() !usize {
+    const cursor_pos = try getCursorPos();
     return cursor_pos.row_pos;
 }
 
 pub fn getTerminalSize() TerminalDimensions {
-    return ttyWinSize(1) catch TerminalDimensions {
-                                                    .width = 80,
-                                                    .height = 24,
-                                                  };
+    if (ttyWinSize()) |win_size| {
+        return TerminalDimensions{
+                .width = win_size.ws_col,
+                .height = win_size.ws_row,
+               };
+    } else |err| {
+        return TerminalDimensions {
+                .width = 80,
+                .height = 24,
+               };
+    }
 }
 
-fn ttyWinSize(fd: i32) !os.winsize {
-    var wsz: os.winsize = undefined;
-    if (syscall3(SYS_ioctl, @bitCast(usize, isize(fd)), TIOCGWINSZ, @ptrToInt(&wsz)) == 0 and
+pub fn enableRawTerminalMode() !termios.Termios {
+    if (!std_in.isTty()) return error.IsNotTty;
+
+    var orig: termios.Termios = undefined;
+    try termios.tcgetattr(std_in.handle, &orig);
+    var raw = orig;
+    termios.cfmakeraw(&raw);
+    try termios.tcsetattr(std_in.handle,termios.TCSAFLUSH,&raw);
+    return orig;
+}
+
+pub fn setTerminalMode(tio: *const termios.Termios) !void {
+    try termios.tcsetattr(std_in.handle, termios.TCSAFLUSH, tio);
+}
+
+pub fn beep() !void {
+    try std_err.write(BELL);
+}
+
+fn ttyWinSize() !linux.winsize {
+    var wsz: linux.winsize = undefined;
+    if (os.linux.syscall3(linux.SYS_ioctl, std_out.handle, linux.TIOCGWINSZ, @ptrToInt(&wsz)) == 0 and
         wsz.ws_col != 0) {
         return wsz;
     } else {
@@ -137,8 +194,8 @@ fn ttyWinSize(fd: i32) !os.winsize {
     }
 }
 
-fn scanRowColumnPositionResponse(response: []const u8) !CursorPos {
-    // expected response: 'ESC' '[' rows ';' columns 'R'
+fn scanCursorPositionReport(response: []const u8) !CursorPos {
+    //https://vt100.net/docs/vt100-ug/chapter3.html#CPR
     if (mem.compare(u8, response[0..2], ESC++"[") != mem.Compare.Equal) {
         return VTError.UnexpectedResponse;
     }
@@ -153,12 +210,16 @@ fn scanRowColumnPositionResponse(response: []const u8) !CursorPos {
     };
 }
 
+fn setTerminalModeNoError(tio: *const termios.Termios) void {
+    setTerminalMode(tio) catch return;
+}
+
 test "scan row/column position response" {
     // SUCCESS CASES
-    const ret1 = scanRowColumnPositionResponse((ESC++"[20;30")[0..]) catch unreachable;
+    const ret1 = scanCursorPositionReport((ESC++"[20;30")[0..]) catch unreachable;
     assert(ret1.row_pos == 20 and ret1.col_pos == 30);
 
-    const ret2 = scanRowColumnPositionResponse((ESC++"[18446744073709551615;18446744073709551615")[0..]) catch unreachable;
+    const ret2 = scanCursorPositionReport((ESC++"[18446744073709551615;18446744073709551615")[0..]) catch unreachable;
     assert(ret2.row_pos == 18446744073709551615 and ret2.col_pos == 18446744073709551615);
 
     // FAILURE CASES
@@ -166,20 +227,42 @@ test "scan row/column position response" {
                                   .col_pos = 255,
                                 };
     // parseUnsigned failure, num too large
-    const err1 = scanRowColumnPositionResponse((ESC++"[18446744073709551615;18446744073709551616")[0..]) catch catch_val;
+    const err1 = scanCursorPositionReport((ESC++"[18446744073709551615;18446744073709551616")[0..]) catch catch_val;
     assert(err1.row_pos == catch_val.row_pos and err1.col_pos == catch_val.col_pos);
-    const err2 = scanRowColumnPositionResponse((ESC++"[18446744073709551616;18446744073709551615")[0..]) catch catch_val;
+    const err2 = scanCursorPositionReport((ESC++"[18446744073709551616;18446744073709551615")[0..]) catch catch_val;
     assert(err2.row_pos == catch_val.row_pos and err2.col_pos == catch_val.col_pos);
 
     // malformed response
     // missing semicolon
-    const err3 = scanRowColumnPositionResponse((ESC++"[20:30")[0..]) catch catch_val;
+    const err3 = scanCursorPositionReport((ESC++"[20:30")[0..]) catch catch_val;
     assert(err3.row_pos == catch_val.row_pos and err3.col_pos == catch_val.col_pos);
     // missing [
-    const err4 = scanRowColumnPositionResponse((ESC++"{20;30")[0..]) catch catch_val;
+    const err4 = scanCursorPositionReport((ESC++"{20;30")[0..]) catch catch_val;
     assert(err4.row_pos == catch_val.row_pos and err4.col_pos == catch_val.col_pos);
     // extra character at start
-    const err5 = scanRowColumnPositionResponse((BELL++ESC++"[20;30")[0..]) catch catch_val;
+    const err5 = scanCursorPositionReport((BELL++ESC++"[20;30")[0..]) catch catch_val;
     assert(err5.row_pos == catch_val.row_pos and err5.col_pos == catch_val.col_pos);
 }
 
+test "use functions" {
+    assert(!isUnsupportedTerm());
+    try beep();
+    try eraseCursorToEndOfLine();
+    try eraseStartOfLineToCursor();
+    try eraseEntireLine();
+    try eraseCursorToEndOfDisplay();
+    try eraseStartOfDisplayToCursor();
+    try eraseEntireDisplay();
+    try clearScreen();
+    try cursorForward(10);
+    try cursorBackward(10);
+    try cursorUp(2);
+    try cursorHome();
+    try cursorDown(2);
+    var non_raw = try enableRawTerminalMode();
+    defer setTerminalModeNoError(&non_raw);
+    _ = try getCursorPos();
+    _ = try getCursorColumn();
+    _ = try getCursorRow();
+    _ = getTerminalSize();
+}
