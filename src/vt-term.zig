@@ -8,7 +8,6 @@ const FixedBufferAllocator = std.heap.FixedBufferAllocator;
 const assert = std.debug.assert;
 const termios = @import("termios.zig");
 
-// From http://www.3waylabs.com/nw/WWW/products/wizcon/vt220.html
 const BELL  = []u8{7};     // Bell
 const BS    = []u8{8};     // Moves cursor back one column
 const HT    = []u8{9};     // Moves the cursor to next tab stop
@@ -52,30 +51,44 @@ pub fn isUnsupportedTerm() bool {
 }
 
 pub fn eraseCursorToEndOfLine() !void {
+//https://vt100.net/docs/vt100-ug/chapter3.html#EL
     try std_out.write(ESC++"[0K");
 }
 
 pub fn eraseStartOfLineToCursor() !void {
+//https://vt100.net/docs/vt100-ug/chapter3.html#EL
     try std_out.write(ESC++"[1K");
 }
 
 pub fn eraseEntireLine() !void {
+//https://vt100.net/docs/vt100-ug/chapter3.html#EL
     try std_out.write(ESC++"[2K");
 }
 
 pub fn eraseCursorToEndOfDisplay() !void {
+//https://vt100.net/docs/vt100-ug/chapter3.html#ED
     try std_out.write(ESC++"[0J");
 }
 
 pub fn eraseStartOfDisplayToCursor() !void {
+//https://vt100.net/docs/vt100-ug/chapter3.html#ED
     try std_out.write(ESC++"[1J");
 }
 
 pub fn eraseEntireDisplay() !void {
+//https://vt100.net/docs/vt100-ug/chapter3.html#ED
     try std_out.write(ESC++"[2J");
 }
 
+pub fn setCursorPos(row: usize, col: usize) !void {
+//https://vt100.net/docs/vt100-ug/chapter3.html#CUP
+    var formatting_buf: [(max_usize_str_len  * 2) + 4]u8 = undefined;
+    const esc_seq = try fmt.bufPrint(formatting_buf[0..], ESC++"[{};{}H", row, col);
+    try std_out.write(esc_seq);
+}
+
 pub fn cursorHome() !void {
+//https://vt100.net/docs/vt100-ug/chapter3.html#CUP
     try std_out.write(ESC++"[H");
 }
 
@@ -85,24 +98,28 @@ pub fn clearScreen() !void {
 }
 
 pub fn cursorForward(num_chars: usize) !void {
+//https://vt100.net/docs/vt100-ug/chapter3.html#CUF
     var formatting_buf: [max_usize_str_len + 3]u8 = undefined;
     const esc_seq = try fmt.bufPrint(formatting_buf[0..], ESC++"[{}C", num_chars);
     try std_out.write(esc_seq);
 }
 
 pub fn cursorBackward(num_chars: usize) !void {
+//https://vt100.net/docs/vt100-ug/chapter3.html#CUB
     var formatting_buf: [max_usize_str_len + 3]u8 = undefined;
     const esc_seq = try fmt.bufPrint(formatting_buf[0..], ESC++"[{}D", num_chars);
     try std_out.write(esc_seq);
 }
 
 pub fn cursorUp(num_chars: usize) !void {
+//https://vt100.net/docs/vt100-ug/chapter3.html#CUU
     var formatting_buf: [max_usize_str_len + 3]u8 = undefined;
     const esc_seq = try fmt.bufPrint(formatting_buf[0..], ESC++"[{}A", num_chars);
     try std_out.write(esc_seq);
 }
 
 pub fn cursorDown(num_chars: usize) !void {
+//https://vt100.net/docs/vt100-ug/chapter3.html#CUD
     var formatting_buf: [max_usize_str_len + 3]u8 = undefined;
     const esc_seq = try fmt.bufPrint(formatting_buf[0..], ESC++"[{}B", num_chars);
     try std_out.write(esc_seq);
@@ -110,7 +127,7 @@ pub fn cursorDown(num_chars: usize) !void {
 
 pub fn getCursorPos() !CursorPos {
     var buf_arr: [(max_usize_str_len * 2) + 4]u8 = undefined;
-    var buf = buf_arr[0..];
+    const buf = buf_arr[0..];
 
     //https://vt100.net/docs/vt100-ug/chapter3.html#DSR
     try std_out.write(ESC++"[6n");
@@ -210,11 +227,7 @@ fn scanCursorPositionReport(response: []const u8) !CursorPos {
     };
 }
 
-fn setTerminalModeNoError(tio: *const termios.Termios) void {
-    setTerminalMode(tio) catch return;
-}
-
-test "scan row/column position response" {
+test "vt-term.zig: scan row/column position response" {
     // SUCCESS CASES
     const ret1 = scanCursorPositionReport((ESC++"[20;30")[0..]) catch unreachable;
     assert(ret1.row_pos == 20 and ret1.col_pos == 30);
@@ -244,8 +257,13 @@ test "scan row/column position response" {
     assert(err5.row_pos == catch_val.row_pos and err5.col_pos == catch_val.col_pos);
 }
 
-test "use functions" {
+test "vt-term.zig: use functions" {
+    var cursor: CursorPos = undefined;
+
     assert(!isUnsupportedTerm());
+    var non_raw = try enableRawTerminalMode();
+    defer setTerminalMode(&non_raw) catch {}; // best effort clean up
+
     try beep();
     try eraseCursorToEndOfLine();
     try eraseStartOfLineToCursor();
@@ -253,16 +271,47 @@ test "use functions" {
     try eraseCursorToEndOfDisplay();
     try eraseStartOfDisplayToCursor();
     try eraseEntireDisplay();
-    try clearScreen();
-    try cursorForward(10);
-    try cursorBackward(10);
-    try cursorUp(2);
+
+    const term_size = getTerminalSize();
+    assert(term_size.width >= 15 and term_size.height >= 12);
+
     try cursorHome();
+    cursor = try getCursorPos();
+    assert(cursor.row_pos == 1 and cursor.col_pos == 1);
+
+    try std_out.write("123");
+    cursor = try getCursorPos();
+    assert(cursor.row_pos == 1 and cursor.col_pos == 4);
+
+    try clearScreen();
+    cursor = try getCursorPos();
+    assert(cursor.row_pos == 1 and cursor.col_pos == 1);
+
+    try cursorForward(10);
+    cursor = try getCursorPos();
+    assert(cursor.row_pos == 1 and cursor.col_pos == 11);
+
     try cursorDown(2);
-    var non_raw = try enableRawTerminalMode();
-    defer setTerminalModeNoError(&non_raw);
-    _ = try getCursorPos();
-    _ = try getCursorColumn();
-    _ = try getCursorRow();
-    _ = getTerminalSize();
+    cursor = try getCursorPos();
+    assert(cursor.row_pos == 3 and cursor.col_pos == 11);
+
+    try cursorBackward(10);
+    cursor = try getCursorPos();
+    assert(cursor.row_pos == 3 and cursor.col_pos == 1);
+
+    try cursorUp(2);
+    cursor = try getCursorPos();
+    assert(cursor.row_pos == 1 and cursor.col_pos == 1);
+
+    try setCursorPos(std.math.maxInt(usize),std.math.maxInt(usize));
+    cursor = try getCursorPos();
+    assert(cursor.row_pos == term_size.height and cursor.col_pos == term_size.width);
+
+    try setCursorPos(12,15);
+    cursor = try getCursorPos();
+    assert(cursor.row_pos == 12 and cursor.col_pos == 15);
+    assert((try getCursorRow()) == 12);
+    assert((try getCursorColumn()) == 15);
+
+    try cursorHome();
 }
