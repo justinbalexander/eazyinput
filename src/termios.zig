@@ -1,6 +1,15 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const os = std.os;
+const linux = os.linux;
+const assert = std.debug.assert;
+
+const supported_os = switch(builtin.os) {
+    builtin.os.linux => true,
+    builtin.os.macosx => true,
+    else => @compileError("unsupported os"),
+    };
+
 
 const supported_architecture = switch(builtin.arch) {
     builtin.Arch.x86_64 => true,
@@ -28,7 +37,7 @@ pub const Termios = struct {
 
 
 pub fn cfgetospeed(tio: *const Termios) speed_t {
-    return tio.c_cflag & CBAUD;
+    return tio.c_cflag & speed_t(CBAUD);
 }
 
 pub fn cfgetispeed(tio: *const Termios) speed_t {
@@ -36,32 +45,32 @@ pub fn cfgetispeed(tio: *const Termios) speed_t {
 }
 
 pub fn cfmakeraw(tio: *Termios) void {
-    tio.c_iflag &= ~(IGNBRK|BRKINT|PARMRK|ISTRIP|INLCR|IGNCR|ICRNL|IXON);
-    tio.c_oflag &= ~OPOST;
-    tio.c_lflag &= ~(ECHO|ECHONL|ICANON|ISIG|IEXTEN);
-    tio.c_cflag &= ~(CSIZE|PARENB);
-    tio.c_cflag |= CS8;
+    tio.c_iflag &= ~tcflag_t(IGNBRK|BRKINT|PARMRK|ISTRIP|INLCR|IGNCR|ICRNL|IXON);
+    tio.c_oflag &= ~tcflag_t(OPOST);
+    tio.c_lflag &= ~tcflag_t(ECHO|ECHONL|ICANON|ISIG|IEXTEN);
+    tio.c_cflag &= ~tcflag_t(CSIZE|PARENB);
+    tio.c_cflag |= tcflag_t(CS8);
     tio.c_cc[VMIN] = 1;
     tio.c_cc[VTIME] = 0;
 }
 
 pub fn cfsetospeed(tio: *Termios, speed: speed_t) !void {
-    if (speed & ~CBAUD) {
+    if (speed & ~speed_t(CBAUD) != 0) {
         return error.UnexpectedBits;
     }
-    tio.c_cflag &= ~CBAUD;
+    tio.c_cflag &= ~speed_t(CBAUD);
     tio.c_cflag |= speed;
 }
 
 pub fn cfsetispeed(tio: *Termios, speed: speed_t) !void {
-    if (speed) return try cfsetospeed(tio, speed);
+    if (speed != 0) return try cfsetospeed(tio, speed);
 }
 
 //TODO: weak linkage?
 pub const cfsetspeed = cfsetospeed;
 
 pub fn tcdrain(fd: i32) !void {
-    const rc = os.linux.syscall3(SYS_ioctl, @bitCast(usize, isize(fd)), TCSBRK, 1);
+    const rc = linux.syscall3(linux.SYS_ioctl, @bitCast(usize, isize(fd)), linux.TCSBRK, 1);
     const err = os.posix.getErrno(rc);
     return switch (err) {
         0 => {},
@@ -70,7 +79,7 @@ pub fn tcdrain(fd: i32) !void {
 }
 
 pub fn tcflow(fd: i32, action: i32) !void {
-    const rc = os.linux.syscall3(SYS_ioctl, @bitCast(usize, isize(fd)), TCXONC, action);
+    const rc = linux.syscall3(linux.SYS_ioctl, @bitCast(usize, isize(fd)), linux.TCXONC, @bitCast(usize, isize(action)));
     const err = os.posix.getErrno(rc);
     return switch (err) {
         0 => {},
@@ -79,7 +88,7 @@ pub fn tcflow(fd: i32, action: i32) !void {
 }
 
 pub fn tcflush(fd: i32, queue: i32) !void {
-    const rc = os.linux.syscall3(SYS_ioctl, @bitCast(usize, isize(fd)), TCFLSH, queue);
+    const rc = linux.syscall3(linux.SYS_ioctl, @bitCast(usize, isize(fd)), linux.TCFLSH, @bitCast(usize, isize(queue)));
     const err = os.posix.getErrno(rc);
     switch (err) {
         0 => {},
@@ -88,7 +97,8 @@ pub fn tcflush(fd: i32, queue: i32) !void {
 }
 
 pub fn tcgetattr(fd: i32, tio: *Termios) !void {
-    const rc = os.linux.syscall3(SYS_ioctl, @bitCast(usize, isize(fd)), TCGETS, tio);
+    const tio_usize = @ptrToInt(tio);
+    const rc = linux.syscall3(linux.SYS_ioctl, @bitCast(usize, isize(fd)), linux.TCGETS, tio_usize);
     const err = os.posix.getErrno(rc);
     return switch (err) {
         0 => {},
@@ -98,7 +108,8 @@ pub fn tcgetattr(fd: i32, tio: *Termios) !void {
 
 pub fn tcgetsid(fd: i32) !pid_t {
     var sid: pid_t = undefined;
-    const rc = os.linux.syscall3(SYS_ioctl, @bitCast(usize, isize(fd)), TIOCGSID, &pid_t);
+    const sid_usize = @ptrToInt(&sid);
+    const rc = linux.syscall3(linux.SYS_ioctl, @bitCast(usize, isize(fd)), linux.TIOCGSID, sid_usize);
     const err = os.posix.getErrno(rc);
     return switch (err) {
         0 => sid,
@@ -108,18 +119,19 @@ pub fn tcgetsid(fd: i32) !pid_t {
 
 pub fn tcsendbreak(fd: i32, dur: i32) !void {
     // ignore dur, implementation defined, use 0 instead
-    const rc = os.linux.syscall3(SYS_ioctl, @bitCast(usize, isize(fd)), TCSBRK, 0);
+    const rc = linux.syscall3(linux.SYS_ioctl, @bitCast(usize, isize(fd)), linux.TCSBRK, 0);
     const err = os.posix.getErrno(rc);
     return switch (err) {
-        0 => sid,
+        0 => {},
         else => error.TCSBRK_Failed,
         };
 }
 
-pub fn tcsetattr(fd: i32, act: i32, tio: *const Termios) !void {
-    if (act < 0 or act > 2) return error.TCSETS_EINVAL;
+pub fn tcsetattr(fd: i32, act: u32, tio: *const Termios) !void {
+    if (act > 2) return error.TCSETS_EINVAL;
 
-    const rc = os.linux.syscall3(SYS_ioctl, @bitCast(usize, isize(fd)), (TCSETS + act), tio);
+    const tio_usize = @ptrToInt(tio);
+    const rc = linux.syscall3(linux.SYS_ioctl, @bitCast(usize, isize(fd)), (linux.TCSETS + act), tio_usize);
     const err = os.posix.getErrno(rc);
     return switch (err) {
         0 => {},
@@ -278,3 +290,41 @@ pub const PENDIN = 0o040000;
 pub const EXTPROC = 0o200000;
 
 pub const XTABS = 0o014000;
+
+test "termios.zig: basic call of functions" {
+    const std_in = try std.io.getStdIn();
+    const std_out = try std.io.getStdOut();
+
+    var termios_raw: Termios = undefined;
+    var termios_1: Termios = undefined;
+    var termios_2: Termios = undefined;
+
+    try tcgetattr((try std.io.getStdOut()).handle, &termios_1);
+    try tcgetattr((try std.io.getStdOut()).handle, &termios_2);
+
+    try tcgetattr((try std.io.getStdOut()).handle, &termios_raw);
+    cfmakeraw(&termios_raw);
+    assert(!std.meta.eql(termios_raw, termios_1));
+
+    try cfsetospeed(&termios_1,cfgetospeed(&termios_2));
+    assert(std.meta.eql(termios_1, termios_2));
+
+    try cfsetispeed(&termios_1, cfgetispeed(&termios_2));
+    assert(std.meta.eql(termios_1, termios_2));
+
+    // set to raw mode, check values were correctly applied
+    try tcsetattr(std_in.handle, TCSAFLUSH, &termios_raw);
+    try tcgetattr(std_out.handle, &termios_1);
+    assert(std.meta.eql(termios_1, termios_raw));
+    // restore to canonical mode, check values were correctly applied
+    try tcsetattr(std_in.handle, TCSAFLUSH, &termios_2);
+    try tcgetattr(std_out.handle, &termios_1);
+    assert(std.meta.eql(termios_1, termios_2));
+
+    // TODO: better tests for these
+    try tcdrain(std_in.handle);
+    try tcflow(std_in.handle, TCOON);
+    try tcflush(std_in.handle, TCIOFLUSH);
+    try tcsendbreak(std_in.handle, 0);
+    _ = try tcgetsid(std_in.handle);
+}
