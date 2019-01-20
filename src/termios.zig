@@ -24,7 +24,7 @@ pub const tcflag_t = c_uint;
 pub const speed_t = c_uint;
 
 const NCCS = 32;
-pub const Termios = struct {
+pub const Termios = packed struct {
     c_iflag:    tcflag_t,
     c_oflag:    tcflag_t,
     c_cflag:    tcflag_t,
