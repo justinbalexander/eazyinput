@@ -64,7 +64,7 @@ const default_max_line_len = os.page_size;  // dictated by DirectAllocator
 //*****************************************************************************
 export fn eazyInputStr(input: ?[*]const u8) ?[*]u8 {
     const max_prompt = 255;
-    const prompt = cstrNSlice(input, max_prompt);
+    const prompt = strnslice(input, max_prompt);
     if (!os.isTty(0)) {
         _ = handleNotTty();
     } else if (vt.isUnsupportedTerm()) {
@@ -143,7 +143,7 @@ fn CTRL(c: u8) u8 {
     return c & u8(0x1F);
 }
 
-fn cstrNSlice(c_str: ?[*]const u8, n: usize) []const u8 {
+fn strnslice(c_str: ?[*]const u8, n: usize) []const u8 {
     // TODO: how to return const slice only if input was const?
     // check for null pointer input, convert to zero length slice
     var slice: []const u8 = undefined;
@@ -162,21 +162,21 @@ fn cstrNSlice(c_str: ?[*]const u8, n: usize) []const u8 {
     return slice;
 }
 
-test "eazyinput.zig: cstrNSlice" {
+test "eazyinput.zig: strnslice" {
     const cstr_null: ?[*]const u8 = null;
     const cstr_0: ?[*]const u8 = c"";
     const cstr_1: ?[*]const u8 = c"123456";
 
     // string is null pointer
-    std.debug.assert(std.mem.compare(u8,cstrNSlice(cstr_null,10),""[0..0]) == std.mem.Compare.Equal);
+    std.debug.assert(std.mem.compare(u8,strnslice(cstr_null,10),""[0..0]) == std.mem.Compare.Equal);
     // null terminator is first byte
-    std.debug.assert(std.mem.compare(u8,cstrNSlice(cstr_0,10),""[0..0]) == std.mem.Compare.Equal);
+    std.debug.assert(std.mem.compare(u8,strnslice(cstr_0,10),""[0..0]) == std.mem.Compare.Equal);
     // null terminator is at "n" index
-    std.debug.assert(std.mem.compare(u8, cstrNSlice(cstr_1, 6),"123456"[0..6]) == std.mem.Compare.Equal);
+    std.debug.assert(std.mem.compare(u8, strnslice(cstr_1, 6),"123456"[0..6]) == std.mem.Compare.Equal);
     // null terminator is beyond "n" index
-    std.debug.assert(std.mem.compare(u8, cstrNSlice(cstr_1, 5),"123456"[0..5]) == std.mem.Compare.Equal);
+    std.debug.assert(std.mem.compare(u8, strnslice(cstr_1, 5),"123456"[0..5]) == std.mem.Compare.Equal);
     // null terminator is before "n" index
-    std.debug.assert(std.mem.compare(u8, cstrNSlice(cstr_1, 7),"123456"[0..6]) == std.mem.Compare.Equal);
+    std.debug.assert(std.mem.compare(u8, strnslice(cstr_1, 7),"123456"[0..6]) == std.mem.Compare.Equal);
 }
 
 test "eazyinput.zig: call all functions" {
