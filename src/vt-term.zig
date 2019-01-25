@@ -33,8 +33,8 @@ const unsupported_term = [][]const u8{
 };
 
 pub const CursorPos = struct {
-    row_pos: usize,
-    col_pos: usize,
+    row: usize,
+    col: usize,
 };
 
 pub const TerminalDimensions = struct {
@@ -80,10 +80,10 @@ pub fn eraseEntireDisplay() !void {
     try std_out.write(ESC++"[2J");
 }
 
-pub fn setCursorPos(row: usize, col: usize) !void {
+pub fn setCursorPos(cpos: CursorPos) !void {
 //https://vt100.net/docs/vt100-ug/chapter3.html#CUP
     var formatting_buf: [(max_usize_str_len  * 2) + 4]u8 = undefined;
-    const esc_seq = try fmt.bufPrint(formatting_buf[0..], ESC++"[{};{}H", row, col);
+    const esc_seq = try fmt.bufPrint(formatting_buf[0..], ESC++"[{};{}H", cpos.row, cpos.col);
     try std_out.write(esc_seq);
 }
 
@@ -160,12 +160,12 @@ pub fn getCursorPos() !CursorPos {
 
 pub fn getCursorColumn() !usize {
     const cursor_pos = try getCursorPos();
-    return cursor_pos.col_pos;
+    return cursor_pos.col;
 }
 
 pub fn getCursorRow() !usize {
     const cursor_pos = try getCursorPos();
-    return cursor_pos.row_pos;
+    return cursor_pos.row;
 }
 
 pub fn getTerminalSize() TerminalDimensions {
@@ -218,43 +218,43 @@ fn scanCursorPositionReport(response: []const u8) !CursorPos {
     }
 
     const delimiter_index = mem.indexOf(u8, response, ";") orelse return VTError.UnexpectedResponse;
-    const row_pos = try fmt.parseUnsigned(usize, response[2..delimiter_index], 10);
-    const col_pos = try fmt.parseUnsigned(usize, response[delimiter_index+1..], 10);
+    const row = try fmt.parseUnsigned(usize, response[2..delimiter_index], 10);
+    const col = try fmt.parseUnsigned(usize, response[delimiter_index+1..], 10);
 
     return CursorPos {
-        .row_pos = row_pos,
-        .col_pos = col_pos,
+        .row = row,
+        .col = col,
     };
 }
 
 test "vt-term.zig: scan row/column position response" {
     // SUCCESS CASES
     const ret1 = scanCursorPositionReport((ESC++"[20;30")[0..]) catch unreachable;
-    assert(ret1.row_pos == 20 and ret1.col_pos == 30);
+    assert(ret1.row == 20 and ret1.col == 30);
 
     const ret2 = scanCursorPositionReport((ESC++"[18446744073709551615;18446744073709551615")[0..]) catch unreachable;
-    assert(ret2.row_pos == 18446744073709551615 and ret2.col_pos == 18446744073709551615);
+    assert(ret2.row == 18446744073709551615 and ret2.col == 18446744073709551615);
 
     // FAILURE CASES
-    const catch_val = CursorPos { .row_pos = 127,
-                                  .col_pos = 255,
+    const catch_val = CursorPos { .row = 127,
+                                  .col = 255,
                                 };
     // parseUnsigned failure, num too large
     const err1 = scanCursorPositionReport((ESC++"[18446744073709551615;18446744073709551616")[0..]) catch catch_val;
-    assert(err1.row_pos == catch_val.row_pos and err1.col_pos == catch_val.col_pos);
+    assert(err1.row == catch_val.row and err1.col == catch_val.col);
     const err2 = scanCursorPositionReport((ESC++"[18446744073709551616;18446744073709551615")[0..]) catch catch_val;
-    assert(err2.row_pos == catch_val.row_pos and err2.col_pos == catch_val.col_pos);
+    assert(err2.row == catch_val.row and err2.col == catch_val.col);
 
     // malformed response
     // missing semicolon
     const err3 = scanCursorPositionReport((ESC++"[20:30")[0..]) catch catch_val;
-    assert(err3.row_pos == catch_val.row_pos and err3.col_pos == catch_val.col_pos);
+    assert(err3.row == catch_val.row and err3.col == catch_val.col);
     // missing [
     const err4 = scanCursorPositionReport((ESC++"{20;30")[0..]) catch catch_val;
-    assert(err4.row_pos == catch_val.row_pos and err4.col_pos == catch_val.col_pos);
+    assert(err4.row == catch_val.row and err4.col == catch_val.col);
     // extra character at start
     const err5 = scanCursorPositionReport((BELL++ESC++"[20;30")[0..]) catch catch_val;
-    assert(err5.row_pos == catch_val.row_pos and err5.col_pos == catch_val.col_pos);
+    assert(err5.row == catch_val.row and err5.col == catch_val.col);
 }
 
 test "vt-term.zig: use functions" {
@@ -277,39 +277,39 @@ test "vt-term.zig: use functions" {
 
     try cursorHome();
     cursor = try getCursorPos();
-    assert(cursor.row_pos == 1 and cursor.col_pos == 1);
+    assert(cursor.row == 1 and cursor.col == 1);
 
     try std_out.write("123");
     cursor = try getCursorPos();
-    assert(cursor.row_pos == 1 and cursor.col_pos == 4);
+    assert(cursor.row == 1 and cursor.col == 4);
 
     try clearScreen();
     cursor = try getCursorPos();
-    assert(cursor.row_pos == 1 and cursor.col_pos == 1);
+    assert(cursor.row == 1 and cursor.col == 1);
 
     try cursorForward(10);
     cursor = try getCursorPos();
-    assert(cursor.row_pos == 1 and cursor.col_pos == 11);
+    assert(cursor.row == 1 and cursor.col == 11);
 
     try cursorDown(2);
     cursor = try getCursorPos();
-    assert(cursor.row_pos == 3 and cursor.col_pos == 11);
+    assert(cursor.row == 3 and cursor.col == 11);
 
     try cursorBackward(10);
     cursor = try getCursorPos();
-    assert(cursor.row_pos == 3 and cursor.col_pos == 1);
+    assert(cursor.row == 3 and cursor.col == 1);
 
     try cursorUp(2);
     cursor = try getCursorPos();
-    assert(cursor.row_pos == 1 and cursor.col_pos == 1);
+    assert(cursor.row == 1 and cursor.col == 1);
 
-    try setCursorPos(std.math.maxInt(usize),std.math.maxInt(usize));
+    try setCursorPos(CursorPos {.row = std.math.maxInt(usize),.col = std.math.maxInt(usize)});
     cursor = try getCursorPos();
-    assert(cursor.row_pos == term_size.height and cursor.col_pos == term_size.width);
+    assert(cursor.row == term_size.height and cursor.col == term_size.width);
 
-    try setCursorPos(12,15);
+    try setCursorPos(CursorPos {.row = 12,.col = 15});
     cursor = try getCursorPos();
-    assert(cursor.row_pos == 12 and cursor.col_pos == 15);
+    assert(cursor.row == 12 and cursor.col == 15);
     assert((try getCursorRow()) == 12);
     assert((try getCursorColumn()) == 15);
 
