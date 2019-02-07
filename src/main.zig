@@ -20,7 +20,9 @@ const EditorState = struct {
     seq_timer: usize,               // timeout for multi-key sequences
     termd: vt.TerminalDimensions,   // last queried terminal dimensions
 
-    fn init() !EditorState {
+    const Self = @This();
+
+    fn init(prompt: []const u8) !Self {
         var state = EditorState {
             .cpos = undefined,
             .termd = undefined,
@@ -28,20 +30,21 @@ const EditorState = struct {
             .mode = EditMode.Normal,
             .seq_timer = 0,
         };
+        try std_out.write(prompt);
         try state.updateCursorPos();
         state.updateTerminalSize();
         return state;
     }
 
-    fn matchCursorPos(state: *EditorState) !void {
+    fn matchCursorPos(state: *Self) !void {
         try vt.setCursorPos(state.cpos);
     }
 
-    fn updateCursorPos(state: *EditorState) !void {
+    fn updateCursorPos(state: *Self) !void {
         state.cpos = try vt.getCursorPos();
     }
 
-    fn updateTerminalSize(state: *EditorState) void {
+    fn updateTerminalSize(state: *Self) void {
         state.termd = vt.getTerminalSize();
     }
 
@@ -132,9 +135,7 @@ fn getEazyInput(prompt: []const u8) ![]u8 {
     var orig_term = try vt.enableRawTerminalMode();
     defer vt.setTerminalMode(&orig_term) catch {}; // best effort
 
-    try std_out.write(prompt);
-
-    var state = try EditorState.init();
+    var state = try EditorState.init(prompt);
 
     return EZError.NotImplemented;
 }
