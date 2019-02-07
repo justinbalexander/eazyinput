@@ -15,7 +15,7 @@ tags
 
 # End of https://www.gitignore.io/api/vim
 
-/zig-cache/
+*zig-cache/
 *.h
 *.o
 *.md
