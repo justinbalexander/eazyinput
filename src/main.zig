@@ -54,10 +54,9 @@ const std_in = os.File.openHandle(os.posix.STDIN_FILENO);
 const std_out = os.File.openHandle(os.posix.STDOUT_FILENO);
 const std_err = os.File.openHandle(os.posix.STDERR_FILENO);
 
-var direct_allocator = std.heap.DirectAllocator.init();
-const allocator = &direct_allocator.allocator;
-const default_max_line_len = os.page_size;  // dictated by DirectAllocator
+const default_max_line_len = 4096;
 
+var runtime_allocator: ?*std.mem.Allocator = null;
 
 
 //*****************************************************************************
@@ -79,13 +78,36 @@ pub fn eazyInputSlice(prompt: []const u8) ![]u8 {
 }
 
 //*****************************************************************************
-// Description: Frees memory previously returned by eazyInputSlice
+// Description: Frees memory previously returned by eazyInputSliceAlloc
+// Parameters: []u8 - slice of memory to free
+// Return: !void - error if unsuccessful or allocator not initialized
+//*****************************************************************************
+pub fn eazyInputSliceFree(user_input: []const u8) !void {
+    if (runtime_allocator) |allocator| {
+        allocator.free(user_input[0..]);
+        return;
+    } else {
+        return error.ez_allocator_uninitialized;
+    }
+}
+
+//*****************************************************************************
+// Description: Allocates memory for the user input
 // Parameters: []u8 - Prompt to display, slice
 // Return: ![]u8 - User input or error if not successful
 //*****************************************************************************
-pub fn eazyInputSliceFree(user_input: []const u8) void {
-    // free entire page
-    allocator.free(user_input.ptr[0..default_max_line_len]);
+fn eazyInputSliceAlloc(comptime T: type, n: usize) ![]T{
+    if (runtime_allocator) |allocator| {
+        var buf = try allocator.alloc(T,n);
+        std.mem.set(u8,buf,0);
+        return buf;
+    } else {
+        var a = &(std.heap.DirectAllocator.init().allocator);
+        runtime_allocator = &(std.heap.ArenaAllocator.init(a).allocator);
+        var buf = try a.alloc(T,n);
+        std.mem.set(u8,buf,0);
+        return buf;
+    }
 }
 
 fn handleNotTty() ![]u8 {
@@ -98,8 +120,8 @@ fn handleUnsupportedTerm() ![]u8 {
 
 fn getEazyInput(prompt: []const u8) ![]u8 {
     var fbuf: [4096]u8 = undefined;
-    var buf = try allocator.alloc(u8,default_max_line_len);
-    errdefer allocator.free(buf);
+    var buf = try eazyInputSliceAlloc(u8, default_max_line_len);
+    errdefer eazyInputSliceFree(buf);
 
     var orig_term = try vt.enableRawTerminalMode();
     defer vt.setTerminalMode(&orig_term) catch {}; // best effort
@@ -149,6 +171,7 @@ test "eazyinput.zig: strnslice" {
     std.debug.assert(std.mem.compare(u8, strnslice(cstr_1, 7),"123456"[0..6]) == std.mem.Compare.Equal);
 }
 
-test "eazyinput.zig: call all functions" {
-    eazyInputSliceFree(try eazyInputSlice("prompt"[0..]));
+test "eazyinput.zig: allocations and frees" {
+    var buf = try eazyInputSliceAlloc(u8, default_max_line_len);
+    try eazyInputSliceFree(buf);
 }
