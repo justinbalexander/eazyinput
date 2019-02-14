@@ -59,38 +59,6 @@ const allocator = &direct_allocator.allocator;
 const default_max_line_len = os.page_size;  // dictated by DirectAllocator
 
 
-//TODO: when null terminated slices become a thing
-////*****************************************************************************
-//// Description: Displays prompt, returns user input
-//// Parameters: ?[*]const u8 - Null terminated prompt string to display
-//// Return: ?[*]u8 - Null terminated user input
-//// Notes: Return string owned by callee, free with eazyInputStrFree
-////*****************************************************************************
-//export fn eazyInputStr(input: ?[*]const u8) ?[*]u8 {
-//    const max_prompt = 255;
-//    const prompt = strnslice(input, max_prompt);
-//    if (!os.isTty(0)) {
-//        _ = handleNotTty();
-//    } else if (vt.isUnsupportedTerm()) {
-//        _ = handleUnsupportedTerm();
-//    } else {
-//        const ret_slice_null_terminated = getEazyInput(prompt) catch |err| return null;
-//        assertOrPanic(ret_slice_null_terminated.len == default_max_line_len);
-//        return ret_slice_null_terminated.ptr;
-//    }
-//    return null;
-//}
-//
-////*****************************************************************************
-//// Description: Frees previously returned string
-//// Parameters: ?[*]const u8 - pointer to memory to free
-//// Return: void
-////*****************************************************************************
-//export fn eazyInputStrFree(user_input: ?[*]const u8) void {
-//    if (user_input) |ptr| {
-//        allocator.free(ptr[0..default_max_line_len]);
-//    }
-//}
 
 //*****************************************************************************
 // Description: Displays prompt, returns user input
@@ -182,6 +150,5 @@ test "eazyinput.zig: strnslice" {
 }
 
 test "eazyinput.zig: call all functions" {
-//    eazyInputStrFree(eazyInputStr(c"prompt"));
     eazyInputSliceFree(try eazyInputSlice("prompt"[0..]));
 }
