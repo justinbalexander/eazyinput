@@ -96,16 +96,16 @@ pub fn eazyInputSliceFree(user_input: []const u8) !void {
 // Parameters: []u8 - Prompt to display, slice
 // Return: ![]u8 - User input or error if not successful
 //*****************************************************************************
-fn eazyInputSliceAlloc(comptime T: type, n: usize) ![]T{
+fn eazyInputSliceAlloc(comptime T: type, n: usize) ![]T {
     if (runtime_allocator) |allocator| {
-        var buf = try allocator.alloc(T,n);
-        std.mem.set(u8,buf,0);
+        var buf = try allocator.alloc(T, n);
+        std.mem.set(u8, buf, 0);
         return buf;
     } else {
         var a = &(std.heap.DirectAllocator.init().allocator);
         runtime_allocator = &(std.heap.ArenaAllocator.init(a).allocator);
-        var buf = try a.alloc(T,n);
-        std.mem.set(u8,buf,0);
+        var buf = try a.alloc(T, n);
+        std.mem.set(u8, buf, 0);
         return buf;
     }
 }
@@ -129,6 +129,12 @@ fn getEazyInput(prompt: []const u8) ![]u8 {
     var state = try EditorState.init(prompt);
 
     return EZError.NotImplemented;
+}
+
+fn getKeypress() !u8 {
+    var c = []u8{0};
+    var count = try std_in.read(c[0..1]);
+    if (count == 1) return c[0] else return error.noKeypress;
 }
 
 fn CTRL(c: u8) u8 {
