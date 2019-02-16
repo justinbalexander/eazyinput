@@ -19,6 +19,7 @@ const EditorState = struct {
     mode: EditMode,                 // current editor mode
     seq_timer: usize,               // timeout for multi-key sequences
     termd: vt.TerminalDimensions,   // last queried terminal dimensions
+    done: bool,                     // editor is ready to return to user
 
     const Self = @This();
 
@@ -29,6 +30,7 @@ const EditorState = struct {
             .index = 0,
             .mode = EditMode.Normal,
             .seq_timer = 0,
+            .done = false,
         };
         try std_out.write(prompt);
         try state.updateCursorPos();
@@ -48,6 +50,13 @@ const EditorState = struct {
         state.termd = vt.getTerminalSize();
     }
 
+    fn getEditorDone(state: *Self) bool {
+        return state.done;
+    }
+
+    fn registerKey(state: *Self, key: u8) void {
+        return;
+    }
 };
 
 const std_in = os.File.openHandle(os.posix.STDIN_FILENO);
@@ -128,7 +137,13 @@ fn getEazyInput(prompt: []const u8) ![]u8 {
 
     var state = try EditorState.init(prompt);
 
-    return EZError.NotImplemented;
+    while (!state.getEditorDone()) {
+        if (getKeypress()) |key| {
+            state.registerKey(key);
+        } else |err| return err;
+    }
+
+    return buf;
 }
 
 fn getKeypress() !u8 {
