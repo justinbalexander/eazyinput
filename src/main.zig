@@ -3,9 +3,7 @@ const os = std.os;
 const vt = @import("vt-term.zig");
 const assertOrPanic = std.debug.assertOrPanic;
 
-const EZError = error {
-    NotImplemented,
-};
+const EZError = error{NotImplemented};
 
 const EditMode = enum {
     Normal,
@@ -14,17 +12,17 @@ const EditMode = enum {
 };
 
 const EditorState = struct {
-    index: usize,                   // index within row slice
-    cpos: vt.CursorPos,             // location of terminal cursor
-    mode: EditMode,                 // current editor mode
-    seq_timer: usize,               // timeout for multi-key sequences
-    termd: vt.TerminalDimensions,   // last queried terminal dimensions
-    done: bool,                     // editor is ready to return to user
+    index: usize, // index within row slice
+    cpos: vt.CursorPos, // location of terminal cursor
+    mode: EditMode, // current editor mode
+    seq_timer: usize, // timeout for multi-key sequences
+    termd: vt.TerminalDimensions, // last queried terminal dimensions
+    done: bool, // editor is ready to return to user
 
     const Self = @This();
 
     fn init(prompt: []const u8) !Self {
-        var state = EditorState {
+        var state = EditorState{
             .cpos = undefined,
             .termd = undefined,
             .index = 0,
@@ -67,7 +65,6 @@ const default_max_line_len = 4096;
 
 var runtime_allocator: ?*std.mem.Allocator = null;
 
-
 //*****************************************************************************
 // Description: Displays prompt, returns user input
 // Parameters: []u8 - Prompt to display, slice
@@ -81,7 +78,7 @@ pub fn eazyInputSlice(prompt: []const u8) ![]u8 {
     } else {
         const ret_slice_null_terminated = try getEazyInput(prompt);
         // TODO: how much memory does the length portion of the slice take up?
-        return ret_slice_null_terminated[0..ret_slice_null_terminated.len - 1];
+        return ret_slice_null_terminated[0 .. ret_slice_null_terminated.len - 1];
     }
     return error.eazyInputNoUserInput;
 }
@@ -161,7 +158,7 @@ fn strnslice(c_str: ?[*]const u8, n: usize) []const u8 {
     // check for null pointer input, convert to zero length slice
     var slice: []const u8 = undefined;
     if (c_str) |p| {
-        for (p[0..n]) |c,i| {
+        for (p[0..n]) |c, i| {
             if (c == 0) {
                 slice = p[0..i];
                 break;
@@ -181,15 +178,15 @@ test "eazyinput.zig: strnslice" {
     const cstr_1: ?[*]const u8 = c"123456";
 
     // string is null pointer
-    std.debug.assert(std.mem.compare(u8,strnslice(cstr_null,10),""[0..0]) == std.mem.Compare.Equal);
+    std.debug.assert(std.mem.compare(u8, strnslice(cstr_null, 10), ""[0..0]) == std.mem.Compare.Equal);
     // null terminator is first byte
-    std.debug.assert(std.mem.compare(u8,strnslice(cstr_0,10),""[0..0]) == std.mem.Compare.Equal);
+    std.debug.assert(std.mem.compare(u8, strnslice(cstr_0, 10), ""[0..0]) == std.mem.Compare.Equal);
     // null terminator is at "n" index
-    std.debug.assert(std.mem.compare(u8, strnslice(cstr_1, 6),"123456"[0..6]) == std.mem.Compare.Equal);
+    std.debug.assert(std.mem.compare(u8, strnslice(cstr_1, 6), "123456"[0..6]) == std.mem.Compare.Equal);
     // null terminator is beyond "n" index
-    std.debug.assert(std.mem.compare(u8, strnslice(cstr_1, 5),"123456"[0..5]) == std.mem.Compare.Equal);
+    std.debug.assert(std.mem.compare(u8, strnslice(cstr_1, 5), "123456"[0..5]) == std.mem.Compare.Equal);
     // null terminator is before "n" index
-    std.debug.assert(std.mem.compare(u8, strnslice(cstr_1, 7),"123456"[0..6]) == std.mem.Compare.Equal);
+    std.debug.assert(std.mem.compare(u8, strnslice(cstr_1, 7), "123456"[0..6]) == std.mem.Compare.Equal);
 }
 
 test "eazyinput.zig: allocations and frees" {
