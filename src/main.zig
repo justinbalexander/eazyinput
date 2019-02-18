@@ -108,9 +108,12 @@ fn eazyInputSliceAlloc(comptime T: type, n: usize) ![]T {
         std.mem.set(u8, buf, 0);
         return buf;
     } else {
-        var a = &(std.heap.DirectAllocator.init().allocator);
-        runtime_allocator = &(std.heap.ArenaAllocator.init(a).allocator);
-        var buf = try a.alloc(T, n);
+        const allocator = struct {
+            var direct_allocator = std.heap.DirectAllocator.init();
+            var arena_allocator = std.heap.ArenaAllocator.init(&direct_allocator.allocator);
+        };
+        runtime_allocator = &(allocator.arena_allocator.allocator);
+        var buf = try runtime_allocator.?.alloc(T, n);
         std.mem.set(u8, buf, 0);
         return buf;
     }
@@ -127,7 +130,7 @@ fn handleUnsupportedTerm() ![]u8 {
 fn getEazyInput(prompt: []const u8) ![]u8 {
     var fbuf: [4096]u8 = undefined;
     var buf = try eazyInputSliceAlloc(u8, default_max_line_len);
-    errdefer eazyInputSliceFree(buf);
+    errdefer eazyInputSliceFree(buf) catch {};
 
     var orig_term = try vt.enableRawTerminalMode();
     defer vt.setTerminalMode(&orig_term) catch {}; // best effort
