@@ -152,7 +152,7 @@ fn getKeypress() !u8 {
     if (count == 1) return c[0] else return error.noKeypress;
 }
 
-fn CTRL(c: u8) u8 {
+inline fn CTRL(c: u8) u8 {
     return c & u8(0x1F);
 }
 
