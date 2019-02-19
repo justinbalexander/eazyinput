@@ -3,7 +3,10 @@ const os = std.os;
 const vt = @import("vt-term.zig");
 const assertOrPanic = std.debug.assertOrPanic;
 
-const EZError = error{NotImplemented};
+const EZError = error{
+    NotImplemented,
+    NoUserInput,
+};
 
 const EditMode = enum {
     Normal,
@@ -18,10 +21,12 @@ const EditorState = struct {
     seq_timer: usize, // timeout for multi-key sequences
     termd: vt.TerminalDimensions, // last queried terminal dimensions
     done: bool, // editor is ready to return to user
+    in_buf: []u8, // buffer used to store input
+    in_len: usize, // current user input size
 
     const Self = @This();
 
-    fn init(prompt: []const u8) !Self {
+    fn init(prompt: []const u8, buf: []u8) !Self {
         var state = EditorState{
             .cpos = undefined,
             .termd = undefined,
@@ -29,6 +34,8 @@ const EditorState = struct {
             .mode = EditMode.Normal,
             .seq_timer = 0,
             .done = false,
+            .in_buf = buf,
+            .in_len = 0,
         };
         try std_out.write(prompt);
         try state.updateCursorPos();
@@ -52,7 +59,28 @@ const EditorState = struct {
         return state.done;
     }
 
+    fn getCurrentUserInput(state: *Self) []u8 {
+        return state.in_buf[0..state.in_len];
+    }
+
     fn registerKey(state: *Self, key: u8) void {
+        const kmem = [1]u8{key};
+        const kslice = kmem[0..];
+
+        switch (state.mode) {
+            EditMode.Normal, EditMode.Visual, EditMode.Insert => switch (key) {
+                'a'...'z', 'A'...'Z', '0'...'9' => {
+                    state.in_buf[state.index] = key;
+                    state.in_len += 1;
+                    state.index += 1;
+                    std_out.write(kslice) catch {};
+                },
+                CTRL('c') => {
+                    state.done = true;
+                },
+                else => {},
+            },
+        }
         return;
     }
 };
@@ -128,14 +156,12 @@ fn handleUnsupportedTerm() ![]u8 {
 }
 
 fn getEazyInput(prompt: []const u8) ![]u8 {
-    var fbuf: [4096]u8 = undefined;
-    var buf = try eazyInputSliceAlloc(u8, default_max_line_len);
-    errdefer eazyInputSliceFree(buf) catch {};
+    var fbuf: [default_max_line_len]u8 = undefined;
 
     var orig_term = try vt.enableRawTerminalMode();
     defer vt.setTerminalMode(&orig_term) catch {}; // best effort
 
-    var state = try EditorState.init(prompt);
+    var state = try EditorState.init(prompt, fbuf[0..]);
 
     while (!state.getEditorDone()) {
         if (getKeypress()) |key| {
@@ -143,7 +169,14 @@ fn getEazyInput(prompt: []const u8) ![]u8 {
         } else |err| return err;
     }
 
-    return buf;
+    var ret_input = state.getCurrentUserInput();
+    if (ret_input.len > 0) {
+        var buf = try eazyInputSliceAlloc(u8, ret_input.len);
+        errdefer eazyInputSliceFree(buf) catch {};
+        std.mem.copy(u8, ret_input, buf);
+        return buf;
+    }
+    return EZError.NoUserInput;
 }
 
 fn getKeypress() !u8 {
@@ -195,4 +228,9 @@ test "eazyinput.zig: strnslice" {
 test "eazyinput.zig: allocations and frees" {
     var buf = try eazyInputSliceAlloc(u8, default_max_line_len);
     try eazyInputSliceFree(buf);
+}
+
+test "eazyinput.zig: top level call" {
+    var ret = try getEazyInput("prompt"[0..]);
+    defer eazyInputSliceFree(ret) catch {};
 }
