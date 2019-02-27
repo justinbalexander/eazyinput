@@ -17,6 +17,8 @@ const EditMode = enum {
 const EditorState = struct {
     index: usize, // index within row slice
     cpos: vt.CursorPos, // location of terminal cursor
+    i_cpos: vt.CursorPos, // initial location of terminal cursor (after prompt)
+    max_cpos: vt.CursorPos, // Farthest cursor position
     mode: EditMode, // current editor mode
     seq_timer: usize, // timeout for multi-key sequences
     termd: vt.TerminalDimensions, // last queried terminal dimensions
@@ -29,6 +31,8 @@ const EditorState = struct {
     fn init(prompt: []const u8, buf: []u8) !Self {
         var state = EditorState{
             .cpos = undefined,
+            .i_cpos = undefined,
+            .max_cpos = undefined,
             .termd = undefined,
             .index = 0,
             .mode = EditMode.Normal,
@@ -39,12 +43,18 @@ const EditorState = struct {
         };
         try std_out.write(prompt);
         try state.updateCursorPos();
+        state.i_cpos = state.cpos;
+        state.max_cpos = state.cpos;
         state.updateTerminalSize();
         return state;
     }
 
-    fn matchCursorPos(state: *Self) !void {
-        try vt.setCursorPos(state.cpos);
+    fn setCursorPos(state: *Self, pos: vt.CursorPos) !void {
+        try vt.setCursorPos(pos);
+    }
+
+    fn getCursorPos(state: *Self) !vt.CursorPos {
+        return try vt.getCursorPos();
     }
 
     fn updateCursorPos(state: *Self) !void {
@@ -55,6 +65,10 @@ const EditorState = struct {
         state.termd = vt.getTerminalSize();
     }
 
+    fn setEditMode(state: *Self, mode: EditMode) void {
+        state.mode = mode;
+    }
+
     fn getEditorDone(state: *Self) bool {
         return state.done;
     }
@@ -63,24 +77,104 @@ const EditorState = struct {
         return state.in_buf[0..state.in_len];
     }
 
-    fn registerKey(state: *Self, key: u8) void {
+    fn moveCursorUp(state: *Self) void {}
+    fn moveCursorDown(state: *Self) void {}
+
+    fn moveCursorRight(state: *Self) !void {
+        if (state.index < state.in_len) {
+            vt.cursorForward(1) catch return;
+            state.index += 1;
+            try state.updateCursorPos();
+        }
+    }
+
+    fn moveCursorLeft(state: *Self) !void {
+        if (state.index > 0) {
+            vt.cursorBackward(1) catch return;
+            state.index -= 1;
+            try state.updateCursorPos();
+        }
+    }
+
+    fn copyRight(state: *Self, num: usize) void {
+        //TODO: check that cursor won't go past screen
+        if (state.in_len < state.in_buf.len - num) {
+            std.mem.copy(u8, state.in_buf[state.index + num .. state.in_len + num], state.in_buf[state.index..state.in_len]);
+        }
+    }
+
+    fn refreshScreen(state: *Self) !void {
+        try state.setCursorPos(state.i_cpos);
+        try vt.eraseCursorToEndOfDisplay();
+        try std_out.write(state.in_buf[0..state.in_len]);
+        state.max_cpos = try state.getCursorPos();
+        try state.setCursorPos(state.cpos);
+    }
+
+    fn insertCharacter(state: *Self, key: u8) void {
+        state.copyRight(1);
+        state.in_buf[state.index] = key;
+        state.in_len += 1;
+        state.index += 1;
+        if (state.cpos.col < state.termd.width - 1) {
+            state.cpos.col += 1;
+        } else {
+            state.cpos.col = 0;
+            if (state.cpos.row < state.termd.height - 1) {
+                state.cpos.row += 1;
+                // else at bottom of screen already
+            }
+        }
+    }
+
+    fn registerKey(state: *Self, key: u8) !void {
         const kmem = [1]u8{key};
         const kslice = kmem[0..];
 
+        state.updateTerminalSize();
         switch (state.mode) {
-            EditMode.Normal, EditMode.Visual, EditMode.Insert => switch (key) {
-                'a'...'z', 'A'...'Z', '0'...'9' => {
-                    state.in_buf[state.index] = key;
-                    state.in_len += 1;
-                    state.index += 1;
-                    std_out.write(kslice) catch {};
+            EditMode.Insert => switch (key) {
+                CTRL('c') => {
+                    state.done = true;
+                },
+                CTRL('d') => {
+                    state.setEditMode(EditMode.Normal);
+                },
+                else => {
+                    state.insertCharacter(key);
+                },
+            },
+            EditMode.Normal => switch (key) {
+                'l' => {
+                    try state.moveCursorRight();
+                },
+                'k' => {
+                    state.moveCursorUp();
+                },
+                'j' => {
+                    state.moveCursorDown();
+                },
+                'h' => {
+                    try state.moveCursorLeft();
+                },
+                'i' => {
+                    state.setEditMode(EditMode.Insert);
                 },
                 CTRL('c') => {
                     state.done = true;
                 },
                 else => {},
             },
+            EditMode.Visual => switch (key) {
+                CTRL('c') => {
+                    state.done = true;
+                },
+                else => {
+                    unreachable;
+                },
+            },
         }
+        try state.refreshScreen();
         return;
     }
 };
@@ -165,7 +259,7 @@ fn getEazyInput(prompt: []const u8) ![]u8 {
 
     while (!state.getEditorDone()) {
         if (getKeypress()) |key| {
-            state.registerKey(key);
+            try state.registerKey(key);
         } else |err| return err;
     }
 
