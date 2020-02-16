@@ -1,5 +1,6 @@
 const std = @import("std");
 const os = std.os;
+const fs = std.fs;
 const linux = os.linux;
 const io = std.io;
 const fmt = std.fmt;
@@ -8,17 +9,17 @@ const FixedBufferAllocator = std.heap.FixedBufferAllocator;
 const assert = std.debug.assert;
 const termios = @import("termios.zig");
 
-const BELL = []u8{7}; // Bell
-const BS = []u8{8}; // Moves cursor back one column
-const HT = []u8{9}; // Moves the cursor to next tab stop
-const LF = []u8{10}; // Moves the cursor down one row
-const CR = []u8{13}; // Move the cursor to column one
-const CAN = []u8{24}; // Cancels an escape sequence
-const ESC = []u8{27}; // Starts an escape sequence
+const BELL = [_]u8{7}; // Bell
+const BS = [_]u8{8}; // Moves cursor back one column
+const HT = [_]u8{9}; // Moves the cursor to next tab stop
+const LF = [_]u8{10}; // Moves the cursor down one row
+const CR = [_]u8{13}; // Move the cursor to column one
+const CAN = [_]u8{24}; // Cancels an escape sequence
+const ESC = [_]u8{27}; // Starts an escape sequence
 
-const std_in = os.File{ .handle = os.posix.STDIN_FILENO };
-const std_out = os.File{ .handle = os.posix.STDOUT_FILENO };
-const std_err = os.File{ .handle = os.posix.STDERR_FILENO };
+const std_in = std.io.getStdIn();
+const std_out = std.io.getStdOut();
+const std_err = std.io.getStdErr();
 
 const VTError = error{
     UnexpectedResponse,
@@ -26,7 +27,7 @@ const VTError = error{
 };
 
 const max_usize_str_len = "18446744073709551615".len;
-const unsupported_term = [][]const u8{
+const unsupported_term = [_][]const u8{
     "dumb",
     "cons25",
     "emacs",
@@ -43,9 +44,9 @@ pub const TerminalDimensions = struct {
 };
 
 pub fn isUnsupportedTerm() bool {
-    const TERM = os.getEnvPosix("TERM") orelse return true;
+    const TERM = os.getenv("TERM") orelse return true;
     for (unsupported_term) |comp| {
-        if (mem.compare(u8, TERM, comp) == mem.Compare.Equal) return true;
+        if (mem.eql(u8, TERM, comp)) return true;
     }
     return false;
 }
@@ -83,7 +84,7 @@ pub fn eraseEntireDisplay() !void {
 pub fn setCursorPos(cpos: CursorPos) !void {
     //https://vt100.net/docs/vt100-ug/chapter3.html#CUP
     var formatting_buf: [(max_usize_str_len * 2) + 4]u8 = undefined;
-    const esc_seq = try fmt.bufPrint(formatting_buf[0..], ESC ++ "[{};{}H", cpos.row, cpos.col);
+    const esc_seq = try fmt.bufPrint(formatting_buf[0..], ESC ++ "[{};{}H", .{ cpos.row, cpos.col });
     try std_out.write(esc_seq);
 }
 
@@ -100,28 +101,28 @@ pub fn clearScreen() !void {
 pub fn cursorForward(num_chars: usize) !void {
     //https://vt100.net/docs/vt100-ug/chapter3.html#CUF
     var formatting_buf: [max_usize_str_len + 3]u8 = undefined;
-    const esc_seq = try fmt.bufPrint(formatting_buf[0..], ESC ++ "[{}C", num_chars);
+    const esc_seq = try fmt.bufPrint(formatting_buf[0..], ESC ++ "[{}C", .{ num_chars });
     try std_out.write(esc_seq);
 }
 
 pub fn cursorBackward(num_chars: usize) !void {
     //https://vt100.net/docs/vt100-ug/chapter3.html#CUB
     var formatting_buf: [max_usize_str_len + 3]u8 = undefined;
-    const esc_seq = try fmt.bufPrint(formatting_buf[0..], ESC ++ "[{}D", num_chars);
+    const esc_seq = try fmt.bufPrint(formatting_buf[0..], ESC ++ "[{}D", .{ num_chars });
     try std_out.write(esc_seq);
 }
 
 pub fn cursorUp(num_chars: usize) !void {
     //https://vt100.net/docs/vt100-ug/chapter3.html#CUU
     var formatting_buf: [max_usize_str_len + 3]u8 = undefined;
-    const esc_seq = try fmt.bufPrint(formatting_buf[0..], ESC ++ "[{}A", num_chars);
+    const esc_seq = try fmt.bufPrint(formatting_buf[0..], ESC ++ "[{}A", .{ num_chars });
     try std_out.write(esc_seq);
 }
 
 pub fn cursorDown(num_chars: usize) !void {
     //https://vt100.net/docs/vt100-ug/chapter3.html#CUD
     var formatting_buf: [max_usize_str_len + 3]u8 = undefined;
-    const esc_seq = try fmt.bufPrint(formatting_buf[0..], ESC ++ "[{}B", num_chars);
+    const esc_seq = try fmt.bufPrint(formatting_buf[0..], ESC ++ "[{}B", .{ num_chars });
     try std_out.write(esc_seq);
 }
 
@@ -198,7 +199,7 @@ pub fn setTerminalMode(tio: *const termios.Termios) !void {
 }
 
 pub fn beep() !void {
-    try std_err.write(BELL);
+    try std_err.write(&BELL);
 }
 
 fn ttyWinSize() !linux.winsize {
@@ -214,7 +215,7 @@ fn ttyWinSize() !linux.winsize {
 
 fn scanCursorPositionReport(response: []const u8) !CursorPos {
     //https://vt100.net/docs/vt100-ug/chapter3.html#CPR
-    if (mem.compare(u8, response[0..2], ESC ++ "[") != mem.Compare.Equal) {
+    if (mem.eql(u8, response[0..2], ESC ++ "[")) {
         return VTError.UnexpectedResponse;
     }
 

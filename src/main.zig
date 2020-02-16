@@ -179,9 +179,9 @@ const EditorState = struct {
     }
 };
 
-const std_in = os.File.openHandle(os.posix.STDIN_FILENO);
-const std_out = os.File.openHandle(os.posix.STDOUT_FILENO);
-const std_err = os.File.openHandle(os.posix.STDERR_FILENO);
+const std_in = std.io.getStdIn();
+const std_out = std.io.getStdOut();
+const std_err = std.io.getStdErr();
 
 const default_max_line_len = 4096;
 
@@ -225,19 +225,18 @@ pub fn eazyInputSliceFree(user_input: []const u8) !void {
 // Return: ![]u8 - User input or error if not successful
 //*****************************************************************************
 fn eazyInputSliceAlloc(comptime T: type, n: usize) ![]T {
+    if (runtime_allocator == null) {
+        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        runtime_allocator = &arena.allocator;
+    }
+
+
     if (runtime_allocator) |allocator| {
         var buf = try allocator.alloc(T, n);
         std.mem.set(u8, buf, 0);
         return buf;
     } else {
-        const allocator = struct {
-            var direct_allocator = std.heap.DirectAllocator.init();
-            var arena_allocator = std.heap.ArenaAllocator.init(&direct_allocator.allocator);
-        };
-        runtime_allocator = &(allocator.arena_allocator.allocator);
-        var buf = try runtime_allocator.?.alloc(T, n);
-        std.mem.set(u8, buf, 0);
-        return buf;
+        unreachable;
     }
 }
 
@@ -274,13 +273,13 @@ fn getEazyInput(prompt: []const u8) ![]u8 {
 }
 
 fn getKeypress() !u8 {
-    var c = []u8{0};
+    var c = [_]u8{0};
     var count = try std_in.read(c[0..1]);
     if (count == 1) return c[0] else return error.noKeypress;
 }
 
 inline fn CTRL(c: u8) u8 {
-    return c & u8(0x1F);
+    return c & @as(u8, 0x1F);
 }
 
 fn strnslice(c_str: ?[*]const u8, n: usize) []const u8 {
@@ -297,26 +296,26 @@ fn strnslice(c_str: ?[*]const u8, n: usize) []const u8 {
             slice = p[0..n];
         }
     } else {
-        slice = ([]u8{0})[0..0];
+        slice = ([_]u8{0})[0..0];
     }
     return slice;
 }
 
 test "eazyinput.zig: strnslice" {
     const cstr_null: ?[*]const u8 = null;
-    const cstr_0: ?[*]const u8 = c"";
-    const cstr_1: ?[*]const u8 = c"123456";
+    const cstr_0: ?[*]const u8 = "";
+    const cstr_1: ?[*]const u8 = "123456";
 
     // string is null pointer
-    std.debug.assert(std.mem.compare(u8, strnslice(cstr_null, 10), ""[0..0]) == std.mem.Compare.Equal);
+    std.debug.assert(std.mem.eql(u8, strnslice(cstr_null, 10), ""[0..0]));
     // null terminator is first byte
-    std.debug.assert(std.mem.compare(u8, strnslice(cstr_0, 10), ""[0..0]) == std.mem.Compare.Equal);
+    std.debug.assert(std.mem.eql(u8, strnslice(cstr_0, 10), ""[0..0]));
     // null terminator is at "n" index
-    std.debug.assert(std.mem.compare(u8, strnslice(cstr_1, 6), "123456"[0..6]) == std.mem.Compare.Equal);
+    std.debug.assert(std.mem.eql(u8, strnslice(cstr_1, 6), "123456"[0..6]));
     // null terminator is beyond "n" index
-    std.debug.assert(std.mem.compare(u8, strnslice(cstr_1, 5), "123456"[0..5]) == std.mem.Compare.Equal);
+    std.debug.assert(std.mem.eql(u8, strnslice(cstr_1, 5), "123456"[0..5]));
     // null terminator is before "n" index
-    std.debug.assert(std.mem.compare(u8, strnslice(cstr_1, 7), "123456"[0..6]) == std.mem.Compare.Equal);
+    std.debug.assert(std.mem.eql(u8, strnslice(cstr_1, 7), "123456"[0..6]));
 }
 
 test "eazyinput.zig: allocations and frees" {
