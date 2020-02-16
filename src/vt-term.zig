@@ -215,7 +215,7 @@ fn ttyWinSize() !linux.winsize {
 
 fn scanCursorPositionReport(response: []const u8) !CursorPos {
     //https://vt100.net/docs/vt100-ug/chapter3.html#CPR
-    if (mem.eql(u8, response[0..2], ESC ++ "[")) {
+    if (!mem.eql(u8, response[0..2], ESC ++ "[")) {
         return VTError.UnexpectedResponse;
     }
 

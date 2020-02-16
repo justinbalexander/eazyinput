@@ -212,7 +212,7 @@ pub fn eazyInputSlice(prompt: []const u8) ![]u8 {
 //*****************************************************************************
 pub fn eazyInputSliceFree(user_input: []const u8) !void {
     if (runtime_allocator) |allocator| {
-        allocator.free(user_input[0..]);
+        allocator.free(user_input);
         return;
     } else {
         return error.ez_allocator_uninitialized;
@@ -226,10 +226,8 @@ pub fn eazyInputSliceFree(user_input: []const u8) !void {
 //*****************************************************************************
 fn eazyInputSliceAlloc(comptime T: type, n: usize) ![]T {
     if (runtime_allocator == null) {
-        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-        runtime_allocator = &arena.allocator;
+        runtime_allocator = std.heap.page_allocator;
     }
-
 
     if (runtime_allocator) |allocator| {
         var buf = try allocator.alloc(T, n);
@@ -324,6 +322,6 @@ test "eazyinput.zig: allocations and frees" {
 }
 
 test "eazyinput.zig: top level call" {
-    var ret = try getEazyInput("prompt"[0..]);
+    var ret = try getEazyInput("prompt");
     defer eazyInputSliceFree(ret) catch {};
 }
