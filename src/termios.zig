@@ -45,11 +45,11 @@ pub fn cfgetispeed(tio: *const Termios) speed_t {
 }
 
 pub fn cfmakeraw(tio: *Termios) void {
-    tio.c_iflag &= ~tcflag_t(IGNBRK|BRKINT|PARMRK|ISTRIP|INLCR|IGNCR|ICRNL|IXON);
-    tio.c_oflag &= ~tcflag_t(OPOST);
-    tio.c_lflag &= ~tcflag_t(ECHO|ECHONL|ICANON|ISIG|IEXTEN);
-    tio.c_cflag &= ~tcflag_t(CSIZE|PARENB);
-    tio.c_cflag |= tcflag_t(CS8);
+    tio.c_iflag &= ~ @as(tcflag_t, IGNBRK|BRKINT|PARMRK|ISTRIP|INLCR|IGNCR|ICRNL|IXON);
+    tio.c_oflag &= ~ @as(tcflag_t, OPOST);
+    tio.c_lflag &= ~ @as(tcflag_t, ECHO|ECHONL|ICANON|ISIG|IEXTEN);
+    tio.c_cflag &= ~ @as(tcflag_t, CSIZE|PARENB);
+    tio.c_cflag |= @as(tcflag_t, CS8);
     tio.c_cc[VMIN] = 1;
     tio.c_cc[VTIME] = 0;
 }
@@ -70,8 +70,8 @@ pub fn cfsetispeed(tio: *Termios, speed: speed_t) !void {
 pub const cfsetspeed = cfsetospeed;
 
 pub fn tcdrain(fd: i32) !void {
-    const rc = linux.syscall3(linux.SYS_ioctl, @bitCast(usize, isize(fd)), linux.TCSBRK, 1);
-    const err = os.posix.getErrno(rc);
+    const rc = linux.syscall3(linux.SYS_ioctl, @bitCast(usize, @as(isize, fd)), linux.TCSBRK, 1);
+    const err = os.linux.getErrno(rc);
     return switch (err) {
         0 => {},
         else => error.TCSBRK_Failed,
@@ -79,8 +79,8 @@ pub fn tcdrain(fd: i32) !void {
 }
 
 pub fn tcflow(fd: i32, action: i32) !void {
-    const rc = linux.syscall3(linux.SYS_ioctl, @bitCast(usize, isize(fd)), linux.TCXONC, @bitCast(usize, isize(action)));
-    const err = os.posix.getErrno(rc);
+    const rc = linux.syscall3(linux.SYS_ioctl, @bitCast(usize, @as(isize, fd)), linux.TCXONC, @bitCast(usize, isize(action)));
+    const err = os.linux.getErrno(rc);
     return switch (err) {
         0 => {},
         else => error.TCXONC_Failed,
@@ -88,8 +88,8 @@ pub fn tcflow(fd: i32, action: i32) !void {
 }
 
 pub fn tcflush(fd: i32, queue: i32) !void {
-    const rc = linux.syscall3(linux.SYS_ioctl, @bitCast(usize, isize(fd)), linux.TCFLSH, @bitCast(usize, isize(queue)));
-    const err = os.posix.getErrno(rc);
+    const rc = linux.syscall3(linux.SYS_ioctl, @bitCast(usize, @as(isize, fd)), linux.TCFLSH, @bitCast(usize, isize(queue)));
+    const err = os.linux.getErrno(rc);
     switch (err) {
         0 => {},
         else => return error.TCXONC_Failed,
@@ -98,8 +98,8 @@ pub fn tcflush(fd: i32, queue: i32) !void {
 
 pub fn tcgetattr(fd: i32, tio: *Termios) !void {
     const tio_usize = @ptrToInt(tio);
-    const rc = linux.syscall3(linux.SYS_ioctl, @bitCast(usize, isize(fd)), linux.TCGETS, tio_usize);
-    const err = os.posix.getErrno(rc);
+    const rc = linux.syscall3(linux.SYS_ioctl, @bitCast(usize, @as(isize, fd)), linux.TCGETS, tio_usize);
+    const err = os.linux.getErrno(rc);
     return switch (err) {
         0 => {},
         else => error.TCGETS_Failed,
@@ -109,8 +109,8 @@ pub fn tcgetattr(fd: i32, tio: *Termios) !void {
 pub fn tcgetsid(fd: i32) !pid_t {
     var sid: pid_t = undefined;
     const sid_usize = @ptrToInt(&sid);
-    const rc = linux.syscall3(linux.SYS_ioctl, @bitCast(usize, isize(fd)), linux.TIOCGSID, sid_usize);
-    const err = os.posix.getErrno(rc);
+    const rc = linux.syscall3(linux.SYS_ioctl, @bitCast(usize, @as(isize, fd)), linux.TIOCGSID, sid_usize);
+    const err = os.linux.getErrno(rc);
     return switch (err) {
         0 => sid,
         else => error.TIOCGSID_Failed,
@@ -119,8 +119,8 @@ pub fn tcgetsid(fd: i32) !pid_t {
 
 pub fn tcsendbreak(fd: i32, dur: i32) !void {
     // ignore dur, implementation defined, use 0 instead
-    const rc = linux.syscall3(linux.SYS_ioctl, @bitCast(usize, isize(fd)), linux.TCSBRK, 0);
-    const err = os.posix.getErrno(rc);
+    const rc = linux.syscall3(linux.SYS_ioctl, @bitCast(usize, @as(isize, fd)), linux.TCSBRK, 0);
+    const err = os.linux.getErrno(rc);
     return switch (err) {
         0 => {},
         else => error.TCSBRK_Failed,
@@ -131,8 +131,8 @@ pub fn tcsetattr(fd: i32, act: u32, tio: *const Termios) !void {
     if (act > 2) return error.TCSETS_EINVAL;
 
     const tio_usize = @ptrToInt(tio);
-    const rc = linux.syscall3(linux.SYS_ioctl, @bitCast(usize, isize(fd)), (linux.TCSETS + act), tio_usize);
-    const err = os.posix.getErrno(rc);
+    const rc = linux.syscall3(linux.SYS_ioctl, @bitCast(usize, @as(isize, fd)), (linux.TCSETS + act), tio_usize);
+    const err = os.linux.getErrno(rc);
     return switch (err) {
         0 => {},
         else => error.TCSETS_Failed,
